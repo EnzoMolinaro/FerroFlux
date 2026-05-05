@@ -3,11 +3,6 @@ database/conexao.py
 -------------------
 Módulo central de conexão com o banco de dados MySQL via pyodbc.
 
-Responsabilidades:
-    - Detectar o driver ODBC disponível (uma vez só, na inicialização)
-    - Prover uma única função para obter conexão
-    - Lançar exceções claras em vez de retornar None silenciosamente
-
 Uso:
     from database.conexao import obter_conexao, ConexaoError
 
@@ -22,9 +17,6 @@ Uso:
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-import pyodbc  # type: ignore[import-untyped]
-
 
 # ---------------------------------------------------------------------------
 # Exceções
@@ -57,19 +49,14 @@ class ConfigConexao:
 
 
 # ---------------------------------------------------------------------------
-# Estado interno encapsulado — evita variáveis globais mutáveis
+# Estado interno
 # ---------------------------------------------------------------------------
 
 
 class _Estado:
-    """
-    Mantém o estado mutável do módulo em um único lugar.
-    Evita o uso de `global`, que confunde o Pylance com variáveis tipadas.
-    """
-
     config: ConfigConexao = ConfigConexao(
         servidor="localhost",
-        porta=3306,
+        porta=3307,
         usuario="root",
         senha="",
         banco="ferroflux",
@@ -77,7 +64,6 @@ class _Estado:
     driver_cache: str | None = None
 
 
-# Drivers MySQL suportados, em ordem de preferência
 _DRIVERS_MYSQL: list[str] = [
     "MySQL ODBC 9.4 Unicode Driver",
     "MySQL ODBC 9.4 ANSI Driver",
@@ -92,15 +78,15 @@ _DRIVERS_MYSQL: list[str] = [
 
 
 def _detectar_driver() -> str:
-    """
-    Detecta o primeiro driver MySQL ODBC disponível no sistema.
-    O resultado fica em _Estado.driver_cache para não repetir a busca.
-
-    Raises:
-        DriverNaoEncontradoError: se nenhum driver compatível for encontrado.
-    """
     if _Estado.driver_cache is not None:
         return _Estado.driver_cache
+
+    try:
+        import pyodbc  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise DriverNaoEncontradoError(
+            "pyodbc não está instalado.\n" "Execute: pip install pyodbc"
+        ) from exc
 
     for driver in _DRIVERS_MYSQL:
         if driver in pyodbc.drivers():
@@ -132,36 +118,20 @@ def _montar_string_conexao(config: ConfigConexao, driver: str) -> str:
 
 
 def configurar(config: ConfigConexao) -> None:
-    """
-    Define a configuração de conexão que será usada pelo módulo.
-    Deve ser chamada uma vez na inicialização, antes de obter_conexao().
-
-    Exemplo:
-        configurar(ConfigConexao(
-            servidor="localhost",
-            porta=3306,
-            usuario="root",
-            senha="minhasenha",
-            banco="ferroflux",
-        ))
-    """
+    """Define a configuração de conexão ativa."""
     _Estado.config = config
 
 
-def obter_conexao() -> pyodbc.Connection:
+def obter_conexao():  # type: ignore[return]
     """
     Retorna uma conexão aberta com o banco de dados.
-    Use preferencialmente como gerenciador de contexto:
-
-        with obter_conexao() as conn:
-            cursor = conn.cursor()
-            ...
-        # conexão fechada automaticamente ao sair do bloco
 
     Raises:
         DriverNaoEncontradoError: driver ODBC não instalado.
-        ConexaoError: falha ao conectar (banco offline, credenciais erradas, etc).
+        ConexaoError: falha ao conectar.
     """
+    import pyodbc  # type: ignore[import-untyped]
+
     driver = _detectar_driver()
     connection_string = _montar_string_conexao(_Estado.config, driver)
 
@@ -178,22 +148,12 @@ def obter_conexao() -> pyodbc.Connection:
 
 
 def testar_conexao(config: ConfigConexao | None = None) -> tuple[bool, str]:
-    """
-    Testa se a conexão com o banco é possível.
-
-    Parâmetros:
-        config: ConfigConexao a testar. Se None, usa a config ativa.
-
-    Retorna:
-        (True, mensagem_de_sucesso) ou (False, mensagem_de_erro)
-
-    Exemplo:
-        ok, msg = testar_conexao(config)
-        barra.sucesso(msg) if ok else barra.erro(msg)
-    """
+    """Testa se a conexão com o banco é possível."""
     cfg = config or _Estado.config
 
     try:
+        import pyodbc  # type: ignore[import-untyped]
+
         driver = _detectar_driver()
         conn = pyodbc.connect(_montar_string_conexao(cfg, driver), timeout=5)
         cursor = conn.cursor()
@@ -205,18 +165,14 @@ def testar_conexao(config: ConfigConexao | None = None) -> tuple[bool, str]:
         return True, f"MySQL {versao}  |  Driver: {driver}"
     except DriverNaoEncontradoError as e:
         return False, str(e)
-    except pyodbc.Error as e:
+    except Exception as e:
         return False, f"Falha na conexão: {e}"
 
 
 def salvar_config_no_banco(config: ConfigConexao) -> None:
-    """
-    Persiste a configuração de conexão na tabela ConexoesBancoDeDados.
-
-    Raises:
-        ConexaoError: se não for possível conectar.
-    """
+    """Persiste a configuração na tabela ConexoesBancoDeDados."""
     with obter_conexao() as conn:
+
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -231,38 +187,38 @@ def salvar_config_no_banco(config: ConfigConexao) -> None:
 
 def carregar_config_do_banco() -> ConfigConexao | None:
     """
-    Lê a configuração mais recente salva na tabela ConexoesBancoDeDados.
-
-    Retorna:
-        ConfigConexao preenchido, ou None se a tabela não existir ou estiver vazia.
-
-    Raises:
-        ConexaoError: se não for possível conectar nem com a config padrão.
+    Lê a configuração mais recente salva no banco.
+    Retorna None se não conseguir conectar ou se não houver config salva.
     """
-    with obter_conexao() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                """
-                SELECT Servidor, Porta, Usuario, Senha, BancoDeDados
-                FROM ConexoesBancoDeDados
-                ORDER BY IDConexoesBancoDeDados DESC
-                LIMIT 1
-                """
-            )
-            row = cursor.fetchone()
-        except pyodbc.Error:
-            return None  # tabela ainda não existe
-        finally:
-            cursor.close()
+    try:
+        import pyodbc  # type: ignore[import-untyped]
 
-    if row is None:
+        with obter_conexao() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    SELECT Servidor, Porta, Usuario, Senha, BancoDeDados
+                    FROM ConexoesBancoDeDados
+                    ORDER BY IDConexoesBancoDeDados DESC
+                    LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
+            except pyodbc.Error:
+                return None
+            finally:
+                cursor.close()
+
+        if row is None:
+            return None
+
+        return ConfigConexao(
+            servidor=row[0],
+            porta=int(row[1]),
+            usuario=row[2],
+            senha=row[3],
+            banco=row[4],
+        )
+    except Exception:
         return None
-
-    return ConfigConexao(
-        servidor=row[0],
-        porta=int(row[1]),
-        usuario=row[2],
-        senha=row[3],
-        banco=row[4],
-    )

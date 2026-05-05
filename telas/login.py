@@ -123,7 +123,7 @@ class TelaLogin(JanelaPadrao):
     def _reconfigurar(self) -> None:
         """Destrói esta janela e abre a tela de configuração de conexão."""
         self.destroy()
-        from telas.conexao import TelaConexao  # pylint: disable=import-outside-toplevel
+        from telas.tela_conexao import TelaConexao  # pylint: disable=import-outside-toplevel
 
         TelaConexao().mainloop()
 

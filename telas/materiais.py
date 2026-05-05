@@ -2,12 +2,12 @@
 telas/materiais.py
 ------------------
 Tela de gerenciamento de materiais do FerroFlux.
+Embarcada no menu como CTkFrame (single-window navigation).
 
 Funcionalidades:
     - Tabela com colunas (Treeview) e ordenação por clique
     - Busca em tempo real por nome
     - Painel lateral com detalhes e ações sempre visíveis
-    - Tela cheia / redimensionável
     - Cadastrar, editar, desativar/reativar materiais
 """
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import tkinter as tk
 import tkinter.ttk as ttk
-from typing import Callable, Literal
+from typing import Callable, Literal, cast
 
 import customtkinter as ctk
 import pyodbc  # type: ignore[import-untyped]
@@ -87,7 +87,6 @@ def _aplicar_estilo_tabela() -> None:
 
 AnchorTabela = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
 _COLUNAS: list[tuple[str, str, int, AnchorTabela]] = [
-    # (id_coluna, cabeçalho, largura_min, anchor)
     ("nome", "Nome", 220, "w"),
     ("unidade", "Unid.", 60, "center"),
     ("custo", "Custo (R$)", 100, "e"),
@@ -99,11 +98,6 @@ _COLUNAS: list[tuple[str, str, int, AnchorTabela]] = [
 
 
 class _TabelaMateriais(ctk.CTkFrame):
-    """
-    Treeview estilizado com scrollbar, cabeçalhos clicáveis para ordenar,
-    e callback de seleção.
-    """
-
     def __init__(self, master: ctk.CTkFrame, **kwargs) -> None:
         kwargs.setdefault("fg_color", Tema.FUNDO_CARD)
         kwargs.setdefault("corner_radius", 16)
@@ -112,7 +106,7 @@ class _TabelaMateriais(ctk.CTkFrame):
         super().__init__(master, **kwargs)
 
         _aplicar_estilo_tabela()
-        self._ordem: dict[str, bool] = {}  # coluna -> crescente?
+        self._ordem: dict[str, bool] = {}
         self._callback_selecao: Callable[[Material], None] | None = None
         self._materiais: list[Material] = []
 
@@ -170,7 +164,6 @@ class _TabelaMateriais(ctk.CTkFrame):
 
         self._tree.bind("<<TreeviewSelect>>", self._on_select)
 
-        # Linhas alternadas
         self._tree.tag_configure("par", background=Tema.FUNDO_INPUT)
         self._tree.tag_configure("impar", background=Tema.FUNDO_CARD)
         self._tree.tag_configure("inativo", foreground=Tema.TEXTO_PLACEHOLDER)
@@ -230,7 +223,6 @@ class _TabelaMateriais(ctk.CTkFrame):
         self._materiais.sort(key=lambda m: getattr(m, attr), reverse=not crescente)
         self.popular(self._materiais)
 
-        # Atualiza seta no cabeçalho
         for c, cab, *_ in _COLUNAS:
             seta = (" ↑" if crescente else " ↓") if c == coluna else ""
             self._tree.heading(c, text=cab + seta)
@@ -242,8 +234,6 @@ class _TabelaMateriais(ctk.CTkFrame):
 
 
 class _PainelDetalhe(ctk.CTkFrame):
-    """Painel lateral: detalhes do item selecionado + botões fixos no fundo."""
-
     def __init__(
         self,
         master: ctk.CTkFrame,
@@ -266,7 +256,6 @@ class _PainelDetalhe(ctk.CTkFrame):
         self._construir()
 
     def _construir(self) -> None:
-        # Área de rolagem para os detalhes
         self._scroll = ctk.CTkScrollableFrame(
             self, fg_color="transparent", corner_radius=0
         )
@@ -294,12 +283,10 @@ class _PainelDetalhe(ctk.CTkFrame):
         )
         self._subtitulo.pack(anchor="w", padx=16, pady=(0, 12))
 
-        # Linha separadora
         ctk.CTkFrame(
             self._scroll, height=1, fg_color=Tema.BORDA_CARD, corner_radius=0
         ).pack(fill="x", padx=16, pady=(0, 12))
 
-        # Campos de detalhe
         self._campos: dict[str, ctk.CTkLabel] = {}
         linhas = [
             ("Unidade", "unidade"),
@@ -335,7 +322,6 @@ class _PainelDetalhe(ctk.CTkFrame):
             val.pack(anchor="w")
             self._campos[chave] = val
 
-        # Botões FIXOS no fundo (fora do scroll)
         rodape = ctk.CTkFrame(self, fg_color=Tema.FUNDO_CARD, corner_radius=0)
         rodape.pack(fill="x", side="bottom", padx=0, pady=0)
 
@@ -361,7 +347,6 @@ class _PainelDetalhe(ctk.CTkFrame):
         self._titulo.configure(text=material.nome)
         self._subtitulo.configure(text=f"ID #{material.id}")
 
-        descricao = material.descricao or "—"
         self._campos["unidade"].configure(text=material.unidade)
         self._campos["custo"].configure(text=f"R$ {material.preco_custo:,.2f}")
         self._campos["venda"].configure(text=f"R$ {material.preco_venda:,.2f}")
@@ -376,7 +361,7 @@ class _PainelDetalhe(ctk.CTkFrame):
             text="✅ Ativo" if material.ativo else "❌ Inativo",
             text_color=Tema.SUCESSO if material.ativo else Tema.PERIGO,
         )
-        self._campos["descricao"].configure(text=descricao)
+        self._campos["descricao"].configure(text=material.descricao or "—")
 
         self._btn_editar.configure(state="normal")
         self._btn_toggle.configure(
@@ -403,41 +388,25 @@ class _PainelDetalhe(ctk.CTkFrame):
 
 
 # ---------------------------------------------------------------------------
-# Tela principal
+# Tela principal — CTkFrame (embedded no menu)
 # ---------------------------------------------------------------------------
 
 
-class TelaMateriais(ctk.CTkToplevel):
-    """
-    Tela principal de materiais.
-
-    Uso (a partir do menu):
-        TelaMateriais(self, self._usuario).grab_set()
-    """
+class TelaMateriais(ctk.CTkFrame):
+    """Tela de gerenciamento de materiais. Embarcada no menu principal."""
 
     def __init__(
         self,
-        master: ctk.CTk | ctk.CTkToplevel,
+        master: ctk.CTkFrame,
         usuario: Usuario | None = None,
     ) -> None:
-        super().__init__(master)
+        super().__init__(master, fg_color=Tema.FUNDO_JANELA, corner_radius=0)
         self._usuario = usuario
-        self.title("FerroFlux — Materiais")
-        self.minsize(900, 560)
-        self.geometry("1100x660")
-        self.resizable(True, True)
-        self.configure(fg_color=Tema.FUNDO_JANELA)
-        self._centralizar()
-
         self._materiais: list[Material] = []
         self._lista_filtrada: list[Material] = []
 
-        # Frame raiz (CTkFrame) — evita passar CTkToplevel a componentes que
-        # esperam CTkFrame
-        self._raiz = ctk.CTkFrame(self, fg_color=Tema.FUNDO_JANELA, corner_radius=0)
-        self._raiz.pack(fill="both", expand=True)
-        self._raiz.grid_rowconfigure(1, weight=1)
-        self._raiz.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
         self._construir_ui()
         self._carregar()
@@ -446,22 +415,14 @@ class TelaMateriais(ctk.CTkToplevel):
     # Layout
     # ------------------------------------------------------------------
 
-    def _centralizar(self) -> None:
-        self.update_idletasks()
-        w, h = 1100, 660
-        x = (self.winfo_screenwidth() - w) // 2
-        y = (self.winfo_screenheight() - h) // 2
-        self.geometry(f"{w}x{h}+{x}+{y}")
-
     def _construir_ui(self) -> None:
         # ── Cabeçalho ──────────────────────────────────────────────────
-        topo = ctk.CTkFrame(self._raiz, fg_color="transparent")
+        topo = ctk.CTkFrame(self, fg_color="transparent")
         topo.grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 0))
         topo.columnconfigure(1, weight=1)
 
         Titulo(topo, "📦  Materiais").grid(row=0, column=0, sticky="w")
 
-        # Busca centralizada
         busca_frame = ctk.CTkFrame(topo, fg_color="transparent")
         busca_frame.grid(row=0, column=1, sticky="ew", padx=24)
         busca_frame.columnconfigure(0, weight=1)
@@ -481,7 +442,6 @@ class TelaMateriais(ctk.CTkToplevel):
         )
         self._chk_inativos.grid(row=0, column=1, padx=(12, 0))
 
-        # Botão novo
         Botao(
             topo,
             "+ Novo Material",
@@ -491,25 +451,19 @@ class TelaMateriais(ctk.CTkToplevel):
 
         # ── Separador ──────────────────────────────────────────────────
         ctk.CTkFrame(
-            self._raiz,
-            height=1,
-            fg_color=Tema.BORDA_CARD,
-            corner_radius=0,
+            self, height=1, fg_color=Tema.BORDA_CARD, corner_radius=0
         ).grid(row=1, column=0, sticky="ew", padx=24, pady=(12, 0))
 
         # ── Corpo: tabela + painel ──────────────────────────────────────
-        corpo = ctk.CTkFrame(self._raiz, fg_color="transparent")
+        corpo = ctk.CTkFrame(self, fg_color="transparent")
         corpo.grid(row=2, column=0, sticky="nsew", padx=24, pady=12)
-        self._raiz.grid_rowconfigure(2, weight=1)
         corpo.grid_rowconfigure(0, weight=1)
         corpo.grid_columnconfigure(0, weight=1)
 
-        # Tabela
         self._tabela = _TabelaMateriais(corpo)
         self._tabela.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         self._tabela.ao_selecionar(self._ao_selecionar)
 
-        # Painel lateral
         self._painel = _PainelDetalhe(
             corpo,
             ao_editar=self._abrir_edicao,
@@ -518,7 +472,7 @@ class TelaMateriais(ctk.CTkToplevel):
         self._painel.grid(row=0, column=1, sticky="nsew")
 
         # ── Barra de status ────────────────────────────────────────────
-        self._barra = BarraStatus(self._raiz)
+        self._barra = BarraStatus(self)
         self._barra.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 12))
 
     # ------------------------------------------------------------------
@@ -565,12 +519,16 @@ class TelaMateriais(ctk.CTkToplevel):
 
     def _abrir_cadastro(self) -> None:
         _JanelaCadastroMaterial(
-            self, material=None, ao_salvar=self._carregar
+            cast(ctk.CTk, self.winfo_toplevel()),
+            material=None,
+            ao_salvar=self._carregar,
         ).grab_set()
 
     def _abrir_edicao(self, material: Material) -> None:
         _JanelaCadastroMaterial(
-            self, material=material, ao_salvar=self._carregar
+            cast(ctk.CTk, self.winfo_toplevel()),
+            material=material,
+            ao_salvar=self._carregar,
         ).grab_set()
 
     def _toggle_ativo(self, material: Material) -> None:
@@ -593,16 +551,16 @@ class TelaMateriais(ctk.CTkToplevel):
 
 
 # ---------------------------------------------------------------------------
-# Janela de cadastro / edição
+# Janela de cadastro / edição — CTkToplevel (modal)
 # ---------------------------------------------------------------------------
 
 
 class _JanelaCadastroMaterial(ctk.CTkToplevel):
-    """Formulário para criar ou editar um material."""
+    """Formulário modal para criar ou editar um material."""
 
     def __init__(
         self,
-        master: ctk.CTkToplevel,
+        master: ctk.CTk | ctk.CTkToplevel,
         material: Material | None,
         ao_salvar: Callable[[], None],
     ) -> None:
@@ -630,12 +588,7 @@ class _JanelaCadastroMaterial(ctk.CTkToplevel):
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
 
-    # ------------------------------------------------------------------
-    # Layout
-    # ------------------------------------------------------------------
-
     def _construir_ui(self) -> None:
-        # Frame raiz para evitar passar CTkToplevel a CartaoFrame
         _frame_raiz = ctk.CTkFrame(self, fg_color=Tema.FUNDO_JANELA, corner_radius=0)
         _frame_raiz.pack(fill="both", expand=True)
         _frame_raiz.grid_rowconfigure(0, weight=1)
@@ -672,7 +625,6 @@ class _JanelaCadastroMaterial(ctk.CTkToplevel):
         self._f_unidade.set("KG")
         self._f_unidade.pack(fill="x", padx=24)
 
-        # Preços lado a lado
         fp = ctk.CTkFrame(card, fg_color="transparent")
         fp.pack(fill="x", padx=24, pady=(8, 0))
         fp.columnconfigure((0, 1), weight=1)
@@ -683,7 +635,6 @@ class _JanelaCadastroMaterial(ctk.CTkToplevel):
         self._f_venda = CampoTexto(fp, placeholder="0,00")
         self._f_venda.grid(row=1, column=1, sticky="ew", padx=(8, 0))
 
-        # Estoque lado a lado
         fe = ctk.CTkFrame(card, fg_color="transparent")
         fe.pack(fill="x", padx=24, pady=(8, 0))
         fe.columnconfigure((0, 1), weight=1)
@@ -717,10 +668,6 @@ class _JanelaCadastroMaterial(ctk.CTkToplevel):
             ao_clicar=self._salvar,
         ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
-    # ------------------------------------------------------------------
-    # Preenchimento
-    # ------------------------------------------------------------------
-
     def _preencher_campos(self, m: Material) -> None:
         self._f_nome.insert(0, m.nome)
         self._f_codigo.insert(0, m.codigo_barras or "")
@@ -731,10 +678,6 @@ class _JanelaCadastroMaterial(ctk.CTkToplevel):
         self._f_estoque.insert(0, f"{m.estoque_atual:.2f}")
         self._f_minimo.insert(0, f"{m.estoque_minimo:.2f}")
         self._f_localizacao.insert(0, m.localizacao or "")
-
-    # ------------------------------------------------------------------
-    # Validação e salvamento
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _ler_decimal(campo: CampoTexto, nome: str) -> float:
@@ -828,28 +771,3 @@ class _JanelaCadastroMaterial(ctk.CTkToplevel):
 
         self._ao_salvar()
         self.after(800, self.destroy)
-
-
-# ---------------------------------------------------------------------------
-# Ponto de entrada para teste isolado
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from database.conexao import ConfigConexao, configurar
-
-    configurar(
-        ConfigConexao(
-            servidor="localhost",
-            porta=3306,
-            usuario="root",
-            senha="",
-            banco="ferroflux",
-        )
-    )
-
-    app = ctk.CTk()
-    app.withdraw()
-
-    tela = TelaMateriais(app)
-    tela.protocol("WM_DELETE_WINDOW", app.destroy)
-    app.mainloop()

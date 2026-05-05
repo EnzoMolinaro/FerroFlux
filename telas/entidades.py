@@ -1,26 +1,20 @@
 """
-telas/clientes.py
------------------
-Tela de gerenciamento de clientes do FerroFlux.
-Para fornecedores, basta criar telas/fornecedores.py com:
+telas/entidades.py
+------------------
+Tela de gerenciamento de clientes e fornecedores do FerroFlux.
+Embarcada no menu como CTkFrame (single-window navigation).
 
-    from telas.clientes import _TelaEntidade
-
-    class TelaFornecedores(_TelaEntidade):
-        def __init__(self, master, usuario=None):
-            super().__init__(master, usuario, modo="fornecedor")
-
-Modos disponíveis:
-    "cliente"    — filtra EhCliente=TRUE, título "Clientes"
-    "fornecedor" — filtra EhFornecedor=TRUE, título "Fornecedores"
-    "ambos"      — sem filtro de tipo
+TelaClientes e TelaFornecedores derivam de _TelaEntidade,
+que é um template genérico controlado pelo parâmetro modo:
+    "cliente"    — filtra EhCliente=TRUE
+    "fornecedor" — filtra EhFornecedor=TRUE
 """
 
 from __future__ import annotations
 
 import tkinter as tk
 import tkinter.ttk as ttk
-from typing import Callable, Literal
+from typing import Callable, Literal, cast
 
 import customtkinter as ctk
 import pyodbc  # type: ignore[import-untyped]
@@ -75,17 +69,8 @@ def _aplicar_estilo_tabela() -> None:
         foreground=[("selected", "#ffffff")],
     )
     style.map("Entidade.Treeview.Heading", background=[("active", Tema.NEUTRO)])
-    style.layout(
-        "Entidade.Treeview",
-        [
-            ("Treeview.treearea", {"sticky": "nswe"}),
-        ],
-    )
+    style.layout("Entidade.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
 
-
-# ---------------------------------------------------------------------------
-# Colunas da tabela
-# ---------------------------------------------------------------------------
 
 AnchorTabela = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
 
@@ -151,16 +136,13 @@ class _TabelaEntidades(ctk.CTkFrame):
                 col_id, text=cab, command=lambda c=col_id: self._ordenar(c)
             )
             self._tree.column(col_id, width=larg, minwidth=larg, anchor=anchor)
-
         sb_y.config(command=self._tree.yview)
         sb_x.config(command=self._tree.xview)
-
         self._tree.grid(row=0, column=0, sticky="nsew", padx=(8, 0), pady=8)
         sb_y.grid(row=0, column=1, sticky="ns", padx=(0, 4), pady=8)
         sb_x.grid(row=1, column=0, sticky="ew", padx=(8, 0), pady=(0, 4))
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
-
         self._tree.tag_configure("par", background=Tema.FUNDO_INPUT)
         self._tree.tag_configure("impar", background=Tema.FUNDO_CARD)
         self._tree.tag_configure("inativo", foreground=Tema.TEXTO_PLACEHOLDER)
@@ -170,15 +152,11 @@ class _TabelaEntidades(ctk.CTkFrame):
         self._entidades = entidades
         self._tree.delete(*self._tree.get_children())
         for i, e in enumerate(entidades):
-            tag_linha = "par" if i % 2 == 0 else "impar"
-            tags: list[str] = [tag_linha]
+            tags: list[str] = ["par" if i % 2 == 0 else "impar"]
             if not e.ativo:
                 tags.append("inativo")
-
-            # Cidade do endereço principal
             end = e.endereco_principal
             cidade_uf = f"{end.cidade} / {end.estado}" if end else "—"
-
             self._tree.insert(
                 "",
                 "end",
@@ -216,8 +194,7 @@ class _TabelaEntidades(ctk.CTkFrame):
         }
         attr = mapa.get(coluna, "nome")
         self._entidades.sort(
-            key=lambda e: str(getattr(e, attr, "")),
-            reverse=not crescente,
+            key=lambda e: str(getattr(e, attr, "")), reverse=not crescente
         )
         self.popular(self._entidades)
         for c, cab, *_ in _COLUNAS:
@@ -226,7 +203,7 @@ class _TabelaEntidades(ctk.CTkFrame):
 
 
 # ---------------------------------------------------------------------------
-# Painel lateral de detalhes
+# Painel lateral
 # ---------------------------------------------------------------------------
 
 
@@ -317,7 +294,6 @@ class _PainelDetalhe(ctk.CTkFrame):
             val.pack(anchor="w")
             self._campos[chave] = val
 
-        # Botões fixos no fundo
         rodape = ctk.CTkFrame(self, fg_color=Tema.FUNDO_CARD, corner_radius=0)
         rodape.pack(fill="x", side="bottom")
         ctk.CTkFrame(rodape, height=1, fg_color=Tema.BORDA_CARD, corner_radius=0).pack(
@@ -328,12 +304,10 @@ class _PainelDetalhe(ctk.CTkFrame):
             rodape, "✏  Editar", variante="primario", ao_clicar=self._on_editar
         )
         self._btn_editar.pack(fill="x", padx=16, pady=(12, 6))
-
         self._btn_toggle = Botao(
             rodape, "🚫  Desativar", variante="perigo", ao_clicar=self._on_toggle
         )
         self._btn_toggle.pack(fill="x", padx=16, pady=(0, 16))
-
         self._btn_editar.configure(state="disabled")
         self._btn_toggle.configure(state="disabled")
 
@@ -341,14 +315,11 @@ class _PainelDetalhe(ctk.CTkFrame):
         self._entidade = entidade
         self._titulo.configure(text=entidade.nome)
         self._subtitulo.configure(text=f"ID #{entidade.id}")
-
-        papeis: list[str] = []
+        papeis = []
         if entidade.eh_cliente:
             papeis.append("Cliente")
         if entidade.eh_fornecedor:
             papeis.append("Fornecedor")
-
-        # Contatos formatados
         contatos_txt = (
             "\n".join(
                 f"{'★ ' if c.principal else ''}{c.tipo}: {c.valor}"
@@ -356,17 +327,14 @@ class _PainelDetalhe(ctk.CTkFrame):
             )
             or "—"
         )
-
-        # Endereço principal
         end = entidade.endereco_principal
         if end:
             num = f", {end.numero}" if end.numero else ""
-            bairro = f"\n{end.bairro}" if end.bairro else ""
-            cidade = f"\n{end.cidade} - {end.estado}" if end.cidade else ""
-            endereco_txt = f"{end.logradouro}{num}{bairro}{cidade}"
+            endereco_txt = (
+                f"{end.logradouro}{num}\n{end.bairro}\n{end.cidade} - {end.estado}"
+            )
         else:
             endereco_txt = "—"
-
         self._campos["documento"].configure(text=entidade.documento)
         self._campos["tipo"].configure(text=entidade.tipo_pessoa)
         self._campos["papeis"].configure(text=" / ".join(papeis) or "—")
@@ -376,18 +344,11 @@ class _PainelDetalhe(ctk.CTkFrame):
         )
         self._campos["contatos"].configure(text=contatos_txt)
         self._campos["endereco"].configure(text=endereco_txt)
-        self._campos["obs"].configure(
-            text=(
-                (entidade.observacoes[:80] + "…")
-                if len(entidade.observacoes) > 80
-                else (entidade.observacoes or "—")
-            )
-        )
-
+        obs = entidade.observacoes or "—"
+        self._campos["obs"].configure(text=(obs[:80] + "…") if len(obs) > 80 else obs)
         self._btn_editar.configure(state="normal")
         self._btn_toggle.configure(
-            state="normal",
-            text="🚫  Desativar" if entidade.ativo else "✅  Reativar",
+            state="normal", text="🚫  Desativar" if entidade.ativo else "✅  Reativar"
         )
 
     def limpar(self) -> None:
@@ -400,25 +361,20 @@ class _PainelDetalhe(ctk.CTkFrame):
         self._btn_toggle.configure(state="disabled", text="🚫  Desativar")
 
     def _on_editar(self) -> None:
-        if self._entidade is not None:
+        if self._entidade:
             self._ao_editar(self._entidade)
 
     def _on_toggle(self) -> None:
-        if self._entidade is not None:
+        if self._entidade:
             self._ao_toggle(self._entidade)
 
 
 # ---------------------------------------------------------------------------
-# Tela base — usada por TelaClientes e TelaFornecedores
+# Tela base — CTkFrame embedded no menu
 # ---------------------------------------------------------------------------
 
 
-class _TelaEntidade(ctk.CTkToplevel):
-    """
-    Tela genérica de gestão de entidades.
-    Subclasse com modo="cliente" ou modo="fornecedor".
-    """
-
+class _TelaEntidade(ctk.CTkFrame):
     _TITULOS: dict[str, str] = {
         "cliente": "👥  Clientes",
         "fornecedor": "🏭  Fornecedores",
@@ -427,43 +383,25 @@ class _TelaEntidade(ctk.CTkToplevel):
 
     def __init__(
         self,
-        master: ctk.CTk | ctk.CTkToplevel,
+        master: ctk.CTkFrame,
         usuario: Usuario | None = None,
         modo: ModoTela = "cliente",
     ) -> None:
-        super().__init__(master)
+        super().__init__(master, fg_color=Tema.FUNDO_JANELA, corner_radius=0)
         self._usuario = usuario
         self._modo: ModoTela = modo
         self._titulo_tela = self._TITULOS.get(modo, "Entidades")
-
-        self.title(f"FerroFlux — {self._titulo_tela.lstrip('👥🏭👤 ')}")
-        self.minsize(960, 580)
-        self.geometry("1140x680")
-        self.resizable(True, True)
-        self.configure(fg_color=Tema.FUNDO_JANELA)
-        self._centralizar()
-
         self._entidades: list[Entidade] = []
         self._lista_filtrada: list[Entidade] = []
 
-        self._raiz = ctk.CTkFrame(self, fg_color=Tema.FUNDO_JANELA, corner_radius=0)
-        self._raiz.pack(fill="both", expand=True)
-        self._raiz.grid_rowconfigure(2, weight=1)
-        self._raiz.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
         self._construir_ui()
         self._carregar()
 
-    def _centralizar(self) -> None:
-        self.update_idletasks()
-        w, h = 1140, 680
-        x = (self.winfo_screenwidth() - w) // 2
-        y = (self.winfo_screenheight() - h) // 2
-        self.geometry(f"{w}x{h}+{x}+{y}")
-
     def _construir_ui(self) -> None:
-        # ── Cabeçalho ──────────────────────────────────────────────────
-        topo = ctk.CTkFrame(self._raiz, fg_color="transparent")
+        topo = ctk.CTkFrame(self, fg_color="transparent")
         topo.grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 0))
         topo.columnconfigure(1, weight=1)
 
@@ -488,23 +426,15 @@ class _TelaEntidade(ctk.CTkToplevel):
         )
         self._chk_inativos.grid(row=0, column=1, padx=(12, 0))
 
-        Botao(
-            topo,
-            "+ Novo",
-            variante="sucesso",
-            ao_clicar=self._abrir_cadastro,
-        ).grid(row=0, column=2, sticky="e")
+        Botao(topo, "+ Novo", variante="sucesso", ao_clicar=self._abrir_cadastro).grid(
+            row=0, column=2, sticky="e"
+        )
 
-        # ── Separador ──────────────────────────────────────────────────
-        ctk.CTkFrame(
-            self._raiz,
-            height=1,
-            fg_color=Tema.BORDA_CARD,
-            corner_radius=0,
-        ).grid(row=1, column=0, sticky="ew", padx=24, pady=(12, 0))
+        ctk.CTkFrame(self, height=1, fg_color=Tema.BORDA_CARD, corner_radius=0).grid(
+            row=1, column=0, sticky="ew", padx=24, pady=(12, 0)
+        )
 
-        # ── Corpo ──────────────────────────────────────────────────────
-        corpo = ctk.CTkFrame(self._raiz, fg_color="transparent")
+        corpo = ctk.CTkFrame(self, fg_color="transparent")
         corpo.grid(row=2, column=0, sticky="nsew", padx=24, pady=12)
         corpo.grid_rowconfigure(0, weight=1)
         corpo.grid_columnconfigure(0, weight=1)
@@ -514,19 +444,12 @@ class _TelaEntidade(ctk.CTkToplevel):
         self._tabela.ao_selecionar(self._ao_selecionar)
 
         self._painel = _PainelDetalhe(
-            corpo,
-            ao_editar=self._abrir_edicao,
-            ao_toggle=self._toggle_ativo,
+            corpo, ao_editar=self._abrir_edicao, ao_toggle=self._toggle_ativo
         )
         self._painel.grid(row=0, column=1, sticky="nsew")
 
-        # ── Barra de status ────────────────────────────────────────────
-        self._barra = BarraStatus(self._raiz)
+        self._barra = BarraStatus(self)
         self._barra.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 12))
-
-    # ------------------------------------------------------------------
-    # Dados
-    # ------------------------------------------------------------------
 
     def _carregar(self) -> None:
         apenas_ativos = not bool(self._chk_inativos.get())
@@ -538,7 +461,6 @@ class _TelaEntidade(ctk.CTkToplevel):
                     apenas_fornecedores=(self._modo == "fornecedor"),
                     apenas_ativos=apenas_ativos,
                 )
-                # Carrega contatos e endereços para exibição na tabela
                 for ent in self._entidades:
                     if ent.id is not None:
                         ent.contatos = repo.listar_contatos(ent.id)
@@ -546,7 +468,6 @@ class _TelaEntidade(ctk.CTkToplevel):
         except ConexaoError as e:
             self._barra.erro(str(e))
             return
-
         self._painel.limpar()
         self._filtrar()
 
@@ -572,23 +493,18 @@ class _TelaEntidade(ctk.CTkToplevel):
         else:
             self._barra.info(f"{total_geral} registro(s) encontrado(s).")
 
-    # ------------------------------------------------------------------
-    # Eventos
-    # ------------------------------------------------------------------
-
     def _ao_selecionar(self, entidade: Entidade) -> None:
         self._painel.exibir(entidade)
 
     def _abrir_cadastro(self) -> None:
         _JanelaCadastroEntidade(
-            self,
+            cast(ctk.CTk, self.winfo_toplevel()),
             entidade=None,
             modo=self._modo,
             ao_salvar=self._carregar,
         ).grab_set()
 
     def _abrir_edicao(self, entidade: Entidade) -> None:
-        # Recarrega com detalhes completos antes de abrir o form
         try:
             with obter_conexao() as conn:
                 id_ent = entidade.id
@@ -596,14 +512,13 @@ class _TelaEntidade(ctk.CTkToplevel):
                     self._barra.erro("Entidade sem ID.")
                     return
                 completa = EntidadeRepo(conn).buscar_por_id(
-                    id_ent,
-                    carregar_detalhes=True,
+                    id_ent, carregar_detalhes=True
                 )
         except ConexaoError as e:
             self._barra.erro(str(e))
             return
         _JanelaCadastroEntidade(
-            self,
+            cast(ctk.CTk, self.winfo_toplevel()),
             entidade=completa,
             modo=self._modo,
             ao_salvar=self._carregar,
@@ -612,7 +527,7 @@ class _TelaEntidade(ctk.CTkToplevel):
     def _toggle_ativo(self, entidade: Entidade) -> None:
         id_entidade = entidade.id
         if id_entidade is None:
-            self._barra.erro("Entidade sem ID — operação impossível.")
+            self._barra.erro("Entidade sem ID.")
             return
         try:
             with obter_conexao() as conn:
@@ -634,43 +549,28 @@ class _TelaEntidade(ctk.CTkToplevel):
 
 
 class TelaClientes(_TelaEntidade):
-    """Tela de gestão de clientes. Registrada no menu como 'clientes'."""
+    """Tela de gestão de clientes — registrada no menu."""
 
-    def __init__(
-        self,
-        master: ctk.CTk | ctk.CTkToplevel,
-        usuario: Usuario | None = None,
-    ) -> None:
+    def __init__(self, master: ctk.CTkFrame, usuario: Usuario | None = None) -> None:
         super().__init__(master, usuario, modo="cliente")
 
 
 class TelaFornecedores(_TelaEntidade):
-    """Tela de gestão de fornecedores. Registrada no menu como 'fornecedores'."""
+    """Tela de gestão de fornecedores — registrada no menu."""
 
-    def __init__(
-        self,
-        master: ctk.CTk | ctk.CTkToplevel,
-        usuario: Usuario | None = None,
-    ) -> None:
+    def __init__(self, master: ctk.CTkFrame, usuario: Usuario | None = None) -> None:
         super().__init__(master, usuario, modo="fornecedor")
 
 
 # ---------------------------------------------------------------------------
-# Formulário de cadastro / edição
+# Formulário de cadastro / edição — CTkToplevel (modal)
 # ---------------------------------------------------------------------------
 
 
 class _JanelaCadastroEntidade(ctk.CTkToplevel):
-    """
-    Formulário de cadastro/edição com abas:
-        Aba 1 — Dados gerais (nome, documento, tipo)
-        Aba 2 — Contatos
-        Aba 3 — Endereço
-    """
-
     def __init__(
         self,
-        master: ctk.CTkToplevel,
+        master: ctk.CTk | ctk.CTkToplevel,
         entidade: Entidade | None,
         modo: ModoTela,
         ao_salvar: Callable[[], None],
@@ -681,16 +581,16 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
         self._ao_salvar = ao_salvar
         self._editando = entidade is not None
 
-        titulo = "Editar" if self._editando else "Novo"
         tipo = {"cliente": "Cliente", "fornecedor": "Fornecedor", "ambos": "Entidade"}
-        self.title(f"FerroFlux — {titulo} {tipo.get(modo, 'Entidade')}")
+        self.title(
+            f"FerroFlux — {'Editar' if self._editando else 'Novo'} {tipo.get(modo, 'Entidade')}"
+        )
         self.geometry("580x720")
         self.minsize(520, 620)
         self.resizable(True, False)
         self.configure(fg_color=Tema.FUNDO_JANELA)
         self._centralizar()
         self._construir_ui()
-
         if self._editando and self._entidade is not None:
             self._preencher(self._entidade)
 
@@ -701,17 +601,13 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
 
-    # ------------------------------------------------------------------
-    # Layout
-    # ------------------------------------------------------------------
-
     def _construir_ui(self) -> None:
-        _frame_raiz = ctk.CTkFrame(self, fg_color=Tema.FUNDO_JANELA, corner_radius=0)
-        _frame_raiz.pack(fill="both", expand=True)
-        _frame_raiz.grid_rowconfigure(0, weight=1)
-        _frame_raiz.grid_columnconfigure(0, weight=1)
+        raiz = ctk.CTkFrame(self, fg_color=Tema.FUNDO_JANELA, corner_radius=0)
+        raiz.pack(fill="both", expand=True)
+        raiz.grid_rowconfigure(0, weight=1)
+        raiz.grid_columnconfigure(0, weight=1)
 
-        scroll = ctk.CTkScrollableFrame(_frame_raiz, fg_color=Tema.FUNDO_JANELA)
+        scroll = ctk.CTkScrollableFrame(raiz, fg_color=Tema.FUNDO_JANELA)
         scroll.grid(row=0, column=0, sticky="nsew")
 
         card = CartaoFrame(scroll)
@@ -732,21 +628,17 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
         Subtitulo(card, "Preencha os dados abaixo.").pack(padx=24, anchor="w")
         Separador(card).pack(fill="x", padx=24, pady=12)
 
-        def campo(
-            label: str, placeholder: str = "", parent: ctk.CTkFrame | None = None
-        ) -> CampoTexto:
+        def campo(label: str, placeholder: str = "", parent=None) -> CampoTexto:
             p = parent or card
             Rotulo(p, label).pack(anchor="w", padx=24, pady=(8, 2))
             c = CampoTexto(p, placeholder=placeholder)
             c.pack(fill="x", padx=24)
             return c
 
-        # ── Dados gerais ───────────────────────────────────────────
         self._f_nome = campo(
             "Nome / Razão Social: *", "Ex: João Silva ou Empresa Ltda."
         )
 
-        # CPF / CNPJ lado a lado
         fdoc = ctk.CTkFrame(card, fg_color="transparent")
         fdoc.pack(fill="x", padx=24, pady=(8, 0))
         fdoc.columnconfigure((0, 1), weight=1)
@@ -757,11 +649,9 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
         self._f_cnpj = CampoTexto(fdoc, placeholder="00.000.000/0000-00")
         self._f_cnpj.grid(row=1, column=1, sticky="ew", padx=(8, 0))
 
-        # Papéis (checkboxes)
         Rotulo(card, "Papel no sistema: *").pack(anchor="w", padx=24, pady=(12, 4))
         fpapeis = ctk.CTkFrame(card, fg_color="transparent")
         fpapeis.pack(anchor="w", padx=24)
-
         self._chk_cliente = ctk.CTkCheckBox(
             fpapeis,
             text="Cliente",
@@ -776,31 +666,24 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
             text_color=Tema.TEXTO_PRINCIPAL,
         )
         self._chk_fornecedor.pack(side="left")
-
-        # Pré-marca conforme o modo
         if self._modo == "cliente":
             self._chk_cliente.select()
         elif self._modo == "fornecedor":
             self._chk_fornecedor.select()
 
         self._f_obs = campo("Observações:", "Informações adicionais...")
-
         Separador(card).pack(fill="x", padx=24, pady=12)
 
-        # ── Contato principal ──────────────────────────────────────
         Rotulo(card, "Contato principal:").pack(anchor="w", padx=24, pady=(0, 4))
         fcontato = ctk.CTkFrame(card, fg_color="transparent")
         fcontato.pack(fill="x", padx=24)
         fcontato.columnconfigure(1, weight=1)
-
         Rotulo(fcontato, "Tipo:").grid(row=0, column=0, sticky="w", padx=(0, 8))
         self._f_contato_tipo = ComboSelecao(
-            fcontato,
-            valores=["CELULAR", "WHATSAPP", "TELEFONE", "EMAIL"],
+            fcontato, valores=["CELULAR", "WHATSAPP", "TELEFONE", "EMAIL"]
         )
         self._f_contato_tipo.set("CELULAR")
         self._f_contato_tipo.grid(row=0, column=1, sticky="ew")
-
         Rotulo(fcontato, "Valor:").grid(
             row=1, column=0, sticky="w", padx=(0, 8), pady=(6, 0)
         )
@@ -808,8 +691,6 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
         self._f_contato_valor.grid(row=1, column=1, sticky="ew", pady=(6, 0))
 
         Separador(card).pack(fill="x", padx=24, pady=12)
-
-        # ── Endereço ───────────────────────────────────────────────
         Rotulo(card, "Endereço:").pack(anchor="w", padx=24, pady=(0, 4))
 
         self._f_logradouro = campo("Logradouro:", "Rua, Av., Travessa...")
@@ -843,7 +724,6 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
         )
         Separador(card).pack(fill="x", padx=24, pady=12)
 
-        # ── Barra + botões ──────────────────────────────────────────
         self._barra = BarraStatus(card)
         self._barra.pack(fill="x", padx=24, pady=(0, 8))
 
@@ -860,34 +740,20 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
             ao_clicar=self._salvar,
         ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
-    # ------------------------------------------------------------------
-    # Preenchimento
-    # ------------------------------------------------------------------
-
     def _preencher(self, e: Entidade) -> None:
         self._f_nome.insert(0, e.nome)
         self._f_cpf.insert(0, e.cpf or "")
         self._f_cnpj.insert(0, e.cnpj or "")
         self._f_obs.insert(0, e.observacoes or "")
-
         if e.eh_cliente:
             self._chk_cliente.select()
         if e.eh_fornecedor:
             self._chk_fornecedor.select()
-
-        # Contato principal
-        contato_preenchido = False
         for c in e.contatos:
             if c.principal:
                 self._f_contato_tipo.set(c.tipo)
                 self._f_contato_valor.insert(0, c.valor)
-                contato_preenchido = True
                 break
-        if not contato_preenchido and e.contatos:
-            self._f_contato_tipo.set(e.contatos[0].tipo)
-            self._f_contato_valor.insert(0, e.contatos[0].valor)
-
-        # Endereço principal
         end = e.endereco_principal
         if end:
             self._f_logradouro.insert(0, end.logradouro)
@@ -898,41 +764,31 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
             self._f_cidade.insert(0, end.cidade)
             self._f_uf.insert(0, end.estado)
 
-    # ------------------------------------------------------------------
-    # Validação e salvamento
-    # ------------------------------------------------------------------
-
     def _validar(self) -> Entidade | None:
         nome = self._f_nome.get().strip()
         if not nome:
             self._barra.erro("O nome é obrigatório.")
             return None
-
         cpf = self._f_cpf.get().strip() or None
         cnpj = self._f_cnpj.get().strip() or None
         if not cpf and not cnpj:
             self._barra.erro("Informe CPF ou CNPJ.")
             return None
-
         eh_cliente = bool(self._chk_cliente.get())
         eh_fornecedor = bool(self._chk_fornecedor.get())
         if not eh_cliente and not eh_fornecedor:
             self._barra.erro("Marque ao menos um papel: Cliente ou Fornecedor.")
             return None
 
-        # Contato
         contatos: list[Contato] = []
         valor_contato = self._f_contato_valor.get().strip()
         if valor_contato:
             contatos.append(
                 Contato(
-                    tipo=self._f_contato_tipo.get(),
-                    valor=valor_contato,
-                    principal=True,
+                    tipo=self._f_contato_tipo.get(), valor=valor_contato, principal=True
                 )
             )
 
-        # Endereço
         enderecos: list[Endereco] = []
         logradouro = self._f_logradouro.get().strip()
         if logradouro:
@@ -941,12 +797,7 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
             if not cidade or not uf:
                 self._barra.erro("Informe cidade e UF para o endereço.")
                 return None
-            # Preserva IDs em modo edição
-            end_orig = (
-                self._entidade.endereco_principal
-                if self._entidade is not None
-                else None
-            )
+            end_orig = self._entidade.endereco_principal if self._entidade else None
             enderecos.append(
                 Endereco(
                     logradouro=logradouro,
@@ -964,10 +815,8 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
                 )
             )
 
-        id_original = self._entidade.id if self._entidade is not None else None
-
         return Entidade(
-            id=id_original,
+            id=self._entidade.id if self._entidade else None,
             nome=nome,
             cpf=cpf,
             cnpj=cnpj,
@@ -983,25 +832,20 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
         entidade = self._validar()
         if entidade is None:
             return
-
         self._barra.info("Salvando...")
         self.update_idletasks()
-
         try:
             with obter_conexao() as conn:
                 repo = EntidadeRepo(conn)
-
                 if repo.documento_existe(entidade.cpf, entidade.cnpj, entidade.id):
                     self._barra.erro("CPF ou CNPJ já cadastrado para outra entidade.")
                     return
-
                 if self._editando:
                     repo.atualizar(entidade)
                     self._barra.sucesso("Registro atualizado com sucesso!")
                 else:
                     repo.inserir(entidade)
                     self._barra.sucesso("Registro cadastrado com sucesso!")
-
         except ConexaoError as e:
             self._barra.erro(f"Erro de conexão: {e}")
             return
@@ -1009,32 +853,7 @@ class _JanelaCadastroEntidade(ctk.CTkToplevel):
             self._barra.erro(f"Erro no banco de dados: {e}")
             return
         except ValueError as e:
-            self._barra.erro(f"Dado inválido: {e}")
+            self._barra.erro(str(e))
             return
-
         self._ao_salvar()
         self.after(800, self.destroy)
-
-
-# ---------------------------------------------------------------------------
-# Ponto de entrada para teste isolado
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from database.conexao import ConfigConexao, configurar
-
-    configurar(
-        ConfigConexao(
-            servidor="localhost",
-            porta=3306,
-            usuario="root",
-            senha="",
-            banco="ferroflux",
-        )
-    )
-
-    app = ctk.CTk()
-    app.withdraw()
-    tela = TelaClientes(app)
-    tela.protocol("WM_DELETE_WINDOW", app.destroy)
-    app.mainloop()

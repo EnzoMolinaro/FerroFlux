@@ -21,6 +21,25 @@ from repositories.usuario_repo import Usuario
 from telas.componentes import BarraStatus, Botao, CampoTexto, ComboSelecao, Tema, Titulo
 
 # ---------------------------------------------------------------------------
+# SQL — nomes reais das colunas no banco
+# ---------------------------------------------------------------------------
+
+_SQL_HISTORICO = """
+    SELECT
+        l.IDLog,
+        l.TimestampAcao,
+        u.Login,
+        l.Acao,
+        l.TabelaAfetada,
+        l.IDRegistroAfetado,
+        l.DadosAntigos,
+        l.DadosNovos
+    FROM logacoes l
+    LEFT JOIN usuario u ON u.IDUsuario = l.IDUsuario
+    ORDER BY l.TimestampAcao DESC
+"""
+
+# ---------------------------------------------------------------------------
 # Estilo da tabela
 # ---------------------------------------------------------------------------
 
@@ -65,6 +84,17 @@ _COLUNAS = [
     ("registro", "Registro", 80, "center"),
 ]
 
+# Valores aceitos pelo filtro de tabela — deve bater com TabelaAfetada no banco
+_TABELAS_FILTRO = [
+    "TODAS",
+    "Entidade",
+    "Usuario",
+    "Material",
+    "Pedido",
+    "ItemPedido",
+    "NotaFiscal",
+]
+
 
 # ---------------------------------------------------------------------------
 # Tela principal — CTkFrame (embedded)
@@ -99,6 +129,10 @@ class TelaHistorico(ctk.CTkFrame):
         self._construir_ui()
         self._carregar()
 
+    # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
+
     def _construir_ui(self) -> None:
         """Monta a interface da tela de histórico."""
         # ── Cabeçalho ──────────────────────────────────────────────────
@@ -121,15 +155,7 @@ class TelaHistorico(ctk.CTkFrame):
 
         self._combo_tabela = ComboSelecao(
             filtros,
-            valores=[
-                "TODAS",
-                "Entidade",
-                "Usuario",
-                "Material",
-                "Pedido",
-                "ItemPedido",
-                "NotaFiscal",
-            ],
+            valores=_TABELAS_FILTRO,
             width=160,
         )
         self._combo_tabela.set("TODAS")
@@ -295,33 +321,18 @@ class TelaHistorico(ctk.CTkFrame):
         try:
             with obter_conexao() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    SELECT
-                        l.IDLog,
-                        l.DataHora,
-                        u.Login,
-                        l.Acao,
-                        l.Tabela,
-                        l.IDRegistro,
-                        l.DadosAntigos,
-                        l.DadosNovos
-                    FROM LogAcoes l
-                    LEFT JOIN Usuario u ON u.IDUsuario = l.IDUsuario
-                    ORDER BY l.DataHora DESC
-                    """
-                )
+                cursor.execute(_SQL_HISTORICO)
                 for row in cursor.fetchall():
                     self._registros.append(
                         {
                             "id": row[0],
-                            "data": row[1],
-                            "usuario": row[2] or "—",
+                            "data": row[1],  # TimestampAcao
+                            "usuario": row[2] or "—",  # u.Login
                             "acao": row[3] or "—",
-                            "tabela": row[4] or "—",
-                            "registro": row[5],
-                            "antes": row[6],
-                            "depois": row[7],
+                            "tabela": row[4] or "—",  # TabelaAfetada
+                            "registro": row[5],  # IDRegistroAfetado
+                            "antes": row[6],  # DadosAntigos
+                            "depois": row[7],  # DadosNovos
                         }
                     )
         except ConexaoError as e:
@@ -364,11 +375,12 @@ class TelaHistorico(ctk.CTkFrame):
                     r["usuario"],
                     r["acao"],
                     r["tabela"],
-                    r["registro"] or "—",
+                    r["registro"] if r["registro"] is not None else "—",
                 ),
             )
 
-        self._barra.info(f"{len(self._filtrados)} registro(s) encontrado(s).")
+        total = len(self._filtrados)
+        self._barra.info(f"{total} registro(s) encontrado(s).")
         self._limpar_detalhe()
 
     def _ao_selecionar(self, _: tk.Event) -> None:  # type: ignore[type-arg]
@@ -395,7 +407,7 @@ class TelaHistorico(ctk.CTkFrame):
                     return dado
             return str(dado)
 
-        for txt, dado in [(self._txt_antes, antes), (self._txt_depois, depois)]:
+        for txt, dado in ((self._txt_antes, antes), (self._txt_depois, depois)):
             txt.configure(state="normal")
             txt.delete("1.0", "end")
             txt.insert("1.0", formatar(dado))
@@ -412,17 +424,25 @@ class TelaHistorico(ctk.CTkFrame):
         """Ordena a tabela pela coluna clicada, alternando asc/desc."""
         crescente = not self._ord_flags.get(coluna, False)
         self._ord_flags[coluna] = crescente
-        mapa = {
+
+        chave_ordenacao = {
             "id": "id",
             "data": "data",
             "usuario": "usuario",
             "acao": "acao",
             "tabela": "tabela",
             "registro": "registro",
-        }
-        attr = mapa.get(coluna, "id")
-        self._registros.sort(key=lambda r: str(r.get(attr, "")), reverse=not crescente)
+        }.get(coluna, "id")
+
+        self._registros.sort(
+            key=lambda r: (
+                r.get(chave_ordenacao) is None,
+                str(r.get(chave_ordenacao, "")),
+            ),
+            reverse=not crescente,
+        )
         self._filtrar()
+
         for c, cab, *_ in _COLUNAS:
             seta = (" ↑" if crescente else " ↓") if c == coluna else ""
             self._tree.heading(c, text=cab + seta)

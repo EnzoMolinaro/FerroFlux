@@ -2,9 +2,6 @@
 telas/menu.py
 -------------
 Menu principal do FerroFlux — navegação single-window.
-
-Cada módulo é um CTkFrame embutido na área central.
-O menu lateral troca o frame ativo sem abrir novas janelas.
 """
 
 from __future__ import annotations
@@ -20,10 +17,6 @@ if TYPE_CHECKING:
     pass
 
 
-# ---------------------------------------------------------------------------
-# Definição dos módulos
-# ---------------------------------------------------------------------------
-
 _MODULOS: list[dict] = [
     {
         "chave": "funcionarios",
@@ -38,7 +31,7 @@ _MODULOS: list[dict] = [
         "label": "Clientes",
         "icone": "👥",
         "perfis": ["ADM", "FUNCIONARIO"],
-        "modulo": "telas.clientes",
+        "modulo": "telas.entidades",
         "classe": "TelaClientes",
     },
     {
@@ -46,7 +39,7 @@ _MODULOS: list[dict] = [
         "label": "Fornecedores",
         "icone": "🏭",
         "perfis": ["ADM", "FUNCIONARIO"],
-        "modulo": "telas.clientes",
+        "modulo": "telas.entidades",
         "classe": "TelaFornecedores",
     },
     {
@@ -84,11 +77,6 @@ _MODULOS: list[dict] = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Tela de boas-vindas (frame padrão ao abrir o menu)
-# ---------------------------------------------------------------------------
-
-
 class _TelaBoasVindas(ctk.CTkFrame):
     def __init__(self, master: ctk.CTkFrame, usuario: Usuario) -> None:
         super().__init__(master, fg_color=Tema.FUNDO_JANELA, corner_radius=0)
@@ -124,21 +112,7 @@ class _TelaBoasVindas(ctk.CTkFrame):
         ).pack(pady=(8, 0))
 
 
-# ---------------------------------------------------------------------------
-# Menu principal
-# ---------------------------------------------------------------------------
-
-
 class TelaMenu(ctk.CTkFrame):
-    """
-    Frame raiz do sistema após o login.
-    Deve ser empacotado na janela CTk pelo chamador.
-
-    Uso:
-        menu = TelaMenu(janela_raiz, usuario=usuario_logado)
-        menu.pack(fill="both", expand=True)
-    """
-
     def __init__(
         self,
         master: ctk.CTk | ctk.CTkFrame,
@@ -157,15 +131,10 @@ class TelaMenu(ctk.CTkFrame):
         self._construir_layout()
         self._mostrar_boas_vindas()
 
-    # ------------------------------------------------------------------
-    # Layout
-    # ------------------------------------------------------------------
-
     def _construir_layout(self) -> None:
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
 
-        # ── Sidebar ────────────────────────────────────────────────────
         self._sidebar = ctk.CTkFrame(
             self,
             fg_color=Tema.FUNDO_CARD,
@@ -175,9 +144,8 @@ class TelaMenu(ctk.CTkFrame):
         )
         self._sidebar.grid(row=0, column=0, sticky="nsew")
         self._sidebar.grid_propagate(False)
-        self._sidebar.grid_rowconfigure(99, weight=1)  # empurra o rodapé pra baixo
+        self._sidebar.grid_rowconfigure(99, weight=1)
 
-        # Logo / nome do sistema
         logo_frame = ctk.CTkFrame(self._sidebar, fg_color="transparent")
         logo_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(24, 0))
 
@@ -199,12 +167,10 @@ class TelaMenu(ctk.CTkFrame):
             anchor="w",
         ).pack(anchor="w")
 
-        # Divisor
         ctk.CTkFrame(
             self._sidebar, height=1, fg_color=Tema.BORDA_CARD, corner_radius=0
         ).grid(row=1, column=0, sticky="ew", padx=16, pady=(16, 8))
 
-        # Botões de navegação
         for linha, modulo in enumerate(self._modulos_visiveis, start=2):
             btn = ctk.CTkButton(
                 self._sidebar,
@@ -221,12 +187,10 @@ class TelaMenu(ctk.CTkFrame):
             btn.grid(row=linha, column=0, sticky="ew", padx=10, pady=2)
             self._botoes_nav[modulo["chave"]] = btn
 
-        # Divisor antes do rodapé
         ctk.CTkFrame(
             self._sidebar, height=1, fg_color=Tema.BORDA_CARD, corner_radius=0
         ).grid(row=99, column=0, sticky="ew", padx=16, pady=(8, 8))
 
-        # Info do usuário + botão sair
         rodape = ctk.CTkFrame(self._sidebar, fg_color="transparent")
         rodape.grid(row=100, column=0, sticky="ew", padx=16, pady=(0, 16))
 
@@ -263,41 +227,26 @@ class TelaMenu(ctk.CTkFrame):
             command=self._sair,
         ).pack(anchor="w", pady=(8, 0))
 
-        # ── Área de conteúdo ───────────────────────────────────────────
         self._area = ctk.CTkFrame(self, fg_color=Tema.FUNDO_JANELA, corner_radius=0)
         self._area.grid(row=0, column=1, sticky="nsew")
         self._area.grid_rowconfigure(0, weight=1)
         self._area.grid_columnconfigure(0, weight=1)
 
-    # ------------------------------------------------------------------
-    # Navegação
-    # ------------------------------------------------------------------
-
     def _navegar(self, modulo: dict) -> None:
         chave = modulo["chave"]
 
-        # Verifica permissão
         if self._usuario.perfil.upper() not in modulo["perfis"]:
             return
 
-        # Evita recarregar se já está na mesma tela
         if chave == self._chave_ativa:
             return
 
-        # Destaca botão ativo
         for k, btn in self._botoes_nav.items():
             if k == chave:
-                btn.configure(
-                    fg_color=Tema.PRIMARIO,
-                    text_color="#ffffff",
-                )
+                btn.configure(fg_color=Tema.PRIMARIO, text_color="#ffffff")
             else:
-                btn.configure(
-                    fg_color="transparent",
-                    text_color=Tema.TEXTO_PRINCIPAL,
-                )
+                btn.configure(fg_color="transparent", text_color=Tema.TEXTO_PRINCIPAL)
 
-        # Importa e instancia o frame do módulo
         try:
             import importlib
 
@@ -311,7 +260,6 @@ class TelaMenu(ctk.CTkFrame):
         self._chave_ativa = chave
 
     def _trocar_frame(self, novo_frame: ctk.CTkFrame) -> None:
-        """Remove o frame atual e exibe o novo."""
         if self._frame_atual is not None:
             self._frame_atual.destroy()
         self._frame_atual = novo_frame
@@ -341,5 +289,26 @@ class TelaMenu(ctk.CTkFrame):
         self._trocar_frame(frame_erro)
 
     def _sair(self) -> None:
-        """Fecha a aplicação ou volta para o login."""
         self.winfo_toplevel().destroy()
+
+
+if __name__ == "__main__":
+    from database.conexao import ConfigConexao, configurar
+
+    configurar(ConfigConexao("localhost", 3307, "root", "", "ferroflux"))
+
+    app = ctk.CTk()
+    app.title("FerroFlux")
+    app.geometry("1200x700")
+
+    usuario_teste = Usuario(
+        id=1,
+        login="admin",
+        nome_completo="Administrador Teste",
+        perfil="ADM",
+        ativo=True,
+    )
+
+    menu = TelaMenu(app, usuario=usuario_teste)
+    menu.pack(fill="both", expand=True)
+    app.mainloop()

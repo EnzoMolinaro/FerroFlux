@@ -2,16 +2,6 @@
 repositories/venda_repo.py
 ---------------------------
 Repositório de vendas — Pedido, ItemPedido, MovimentacaoEstoque, NotaFiscal.
-
-Fluxo principal:
-    1. criar_pedido()          → insere Pedido com status PENDENTE
-    2. adicionar_item()        → insere ItemPedido e valida estoque
-    3. confirmar_pedido()      → muda status para CONFIRMADO, baixa estoque,
-                                 atualiza ValorTotal
-    4. cancelar_pedido()       → muda status para CANCELADO, estorna estoque
-    5. avancar_status()        → CONFIRMADO → PREPARANDO → ENVIADO → ENTREGUE
-    6. emitir_nota_fiscal()    → insere NotaFiscal vinculada ao pedido
-    7. Consultas de listagem, busca, detalhes
 """
 
 from __future__ import annotations
@@ -93,20 +83,11 @@ class NotaFiscal:
 
 
 class VendaRepo:
-    """
-    Operações de banco para o módulo de vendas.
-    Requer uma conexão pyodbc aberta — NÃO gerencia seu ciclo de vida.
-    """
-
     def __init__(self, conn: pyodbc.Connection) -> None:
         self._conn = conn
 
     def _cursor(self) -> pyodbc.Cursor:
         return self._conn.cursor()
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _row_pedido(row: Any) -> Pedido:
@@ -139,20 +120,30 @@ class VendaRepo:
     # Consultas de pedidos
     # ------------------------------------------------------------------
 
+    # EnderecoBase não tem Cidade/Estado diretamente — precisa JOIN com Bairro e Cidade
     _SQL_PEDIDOS = """
         SELECT
             p.IDPedido,
             p.IDCliente,
-            e.Nome          AS NomeCliente,
+            e.Nome              AS NomeCliente,
             p.DataPedido,
             p.Status,
             p.ValorTotal,
             p.Observacoes,
             p.IDEnderecoEntrega,
-            CONCAT(eb.Logradouro, ', ', eb.Numero, ' - ', eb.Cidade) AS EnderecoEntrega
+            CASE
+                WHEN eb.IDEndereco IS NULL THEN NULL
+                ELSE CONCAT(
+                    eb.Logradouro,
+                    IFNULL(CONCAT(', ', eb.Numero), ''),
+                    ' - ', ci.Nome, '/', ci.Estado
+                )
+            END                 AS EnderecoEntrega
         FROM Pedido p
-        JOIN Entidade e  ON e.IDEntidade = p.IDCliente
+        JOIN Entidade e ON e.IDEntidade = p.IDCliente
         LEFT JOIN EnderecoBase eb ON eb.IDEndereco = p.IDEnderecoEntrega
+        LEFT JOIN Bairro ba       ON ba.IDBairro   = eb.IDBairro
+        LEFT JOIN Cidade ci       ON ci.IDCidade   = ba.IDCidade
     """
 
     def listar_pedidos(
@@ -162,7 +153,6 @@ class VendaRepo:
         data_inicio: datetime | None = None,
         data_fim: datetime | None = None,
     ) -> list[Pedido]:
-        """Lista pedidos com filtros opcionais."""
         filtros: list[str] = []
         params: list[Any] = []
 
@@ -191,7 +181,6 @@ class VendaRepo:
         return [self._row_pedido(r) for r in rows]
 
     def buscar_pedido(self, id_pedido: int) -> Pedido | None:
-        """Busca pedido por ID com seus itens."""
         cur = self._cursor()
         cur.execute(self._SQL_PEDIDOS + " WHERE p.IDPedido = ?", (id_pedido,))
         row = cur.fetchone()
@@ -203,7 +192,6 @@ class VendaRepo:
         return pedido
 
     def listar_itens(self, id_pedido: int) -> list[ItemPedido]:
-        """Retorna os itens de um pedido."""
         cur = self._cursor()
         cur.execute(
             """
@@ -231,7 +219,6 @@ class VendaRepo:
     # ------------------------------------------------------------------
 
     def estoque_disponivel(self, id_produto: int) -> float:
-        """Retorna a quantidade atual em estoque de um produto."""
         cur = self._cursor()
         cur.execute(
             "SELECT COALESCE(Quantidade, 0) FROM Estoque WHERE IDProduto = ?",
@@ -242,10 +229,6 @@ class VendaRepo:
         return float(row[0]) if row else 0.0
 
     def validar_estoque_pedido(self, itens: list[ItemPedido]) -> list[str]:
-        """
-        Valida se todos os itens têm estoque suficiente.
-        Retorna lista de mensagens de erro (vazia se tudo OK).
-        """
         erros: list[str] = []
         for item in itens:
             disponivel = self.estoque_disponivel(item.id_produto)
@@ -267,10 +250,6 @@ class VendaRepo:
         observacoes: str = "",
         id_endereco_entrega: int | None = None,
     ) -> int:
-        """
-        Cria um pedido com status PENDENTE.
-        Retorna o ID do pedido criado.
-        """
         cur = self._cursor()
         cur.execute(
             """
@@ -290,10 +269,6 @@ class VendaRepo:
         return id_pedido
 
     def salvar_itens(self, id_pedido: int, itens: list[ItemPedido]) -> None:
-        """
-        Substitui todos os itens de um pedido PENDENTE.
-        Limpa os itens atuais e reinsere.
-        """
         cur = self._cursor()
         cur.execute("DELETE FROM ItemPedido WHERE IDPedido = ?", (id_pedido,))
         for item in itens:
@@ -304,7 +279,6 @@ class VendaRepo:
                 """,
                 (id_pedido, item.id_produto, item.quantidade, item.preco_unitario),
             )
-        # Atualiza ValorTotal
         cur.execute(
             """
             UPDATE Pedido
@@ -337,13 +311,6 @@ class VendaRepo:
     # ------------------------------------------------------------------
 
     def confirmar_pedido(self, id_pedido: int, id_usuario: int) -> None:
-        """
-        Confirma o pedido: valida estoque, baixa estoque de cada item,
-        insere movimentações e muda status para CONFIRMADO.
-
-        Raises:
-            ValueError: se estoque insuficiente ou pedido sem itens.
-        """
         itens = self.listar_itens(id_pedido)
         if not itens:
             raise ValueError("O pedido não possui itens.")
@@ -354,17 +321,16 @@ class VendaRepo:
 
         cur = self._cursor()
         for item in itens:
-            # Baixa estoque
             cur.execute(
                 "UPDATE Estoque SET Quantidade = Quantidade - ? WHERE IDProduto = ?",
                 (item.quantidade, item.id_produto),
             )
-            # Movimentação de saída
+            # IDNotaFiscal é NULL — campo opcional no schema
             cur.execute(
                 """
                 INSERT INTO MovimentacaoEstoque
-                    (IDProduto, TipoMovimentacao, Quantidade, IDPedido, IDNotaFiscal, IDUsuario, Observacao)
-                VALUES (?, 'SAIDA', ?, ?, 0, ?, ?)
+                    (IDProduto, TipoMovimentacao, Quantidade, IDPedido, IDUsuario, Observacao)
+                VALUES (?, 'SAIDA', ?, ?, ?, ?)
                 """,
                 (
                     item.id_produto,
@@ -383,12 +349,6 @@ class VendaRepo:
         cur.close()
 
     def cancelar_pedido(self, id_pedido: int, id_usuario: int) -> None:
-        """
-        Cancela o pedido. Se já estava CONFIRMADO, estorna o estoque.
-
-        Raises:
-            ValueError: se status não permite cancelamento (ENTREGUE).
-        """
         cur = self._cursor()
         cur.execute("SELECT Status FROM Pedido WHERE IDPedido = ?", (id_pedido,))
         row = cur.fetchone()
@@ -399,7 +359,6 @@ class VendaRepo:
         if status_atual == "ENTREGUE":
             raise ValueError("Pedidos entregues não podem ser cancelados.")
 
-        # Estorna estoque se já havia baixado
         if status_atual in ("CONFIRMADO", "PREPARANDO", "ENVIADO"):
             itens = self.listar_itens(id_pedido)
             for item in itens:
@@ -410,8 +369,8 @@ class VendaRepo:
                 cur.execute(
                     """
                     INSERT INTO MovimentacaoEstoque
-                        (IDProduto, TipoMovimentacao, Quantidade, IDPedido, IDNotaFiscal, IDUsuario, Observacao)
-                    VALUES (?, 'ENTRADA', ?, ?, 0, ?, ?)
+                        (IDProduto, TipoMovimentacao, Quantidade, IDPedido, IDUsuario, Observacao)
+                    VALUES (?, 'ENTRADA', ?, ?, ?, ?)
                     """,
                     (
                         item.id_produto,
@@ -430,13 +389,6 @@ class VendaRepo:
         cur.close()
 
     def avancar_status(self, id_pedido: int) -> str:
-        """
-        Avança o status: CONFIRMADO→PREPARANDO→ENVIADO→ENTREGUE.
-        Retorna o novo status.
-
-        Raises:
-            ValueError: se o status atual não pode avançar.
-        """
         cur = self._cursor()
         cur.execute("SELECT Status FROM Pedido WHERE IDPedido = ?", (id_pedido,))
         row = cur.fetchone()
@@ -467,13 +419,6 @@ class VendaRepo:
         id_destinatario: int,
         observacoes: str = "",
     ) -> int:
-        """
-        Emite uma NF de saída para o pedido.
-        Retorna o ID da NotaFiscal criada.
-
-        Raises:
-            ValueError: se o pedido não estiver CONFIRMADO ou superior.
-        """
         cur = self._cursor()
         cur.execute(
             "SELECT Status, ValorTotal FROM Pedido WHERE IDPedido = ?",
@@ -509,7 +454,6 @@ class VendaRepo:
         return id_nota
 
     def buscar_nota_fiscal(self, id_pedido: int) -> NotaFiscal | None:
-        """Retorna a NF mais recente de um pedido, ou None."""
         cur = self._cursor()
         cur.execute(
             """
@@ -555,11 +499,10 @@ class VendaRepo:
         )
 
     # ------------------------------------------------------------------
-    # Clientes (para seleção no formulário)
+    # Clientes e endereços (para seleção no formulário)
     # ------------------------------------------------------------------
 
     def listar_clientes(self) -> list[tuple[int, str]]:
-        """Retorna [(id, nome)] de entidades marcadas como cliente e ativas."""
         cur = self._cursor()
         cur.execute(
             """
@@ -578,14 +521,20 @@ class VendaRepo:
         cur = self._cursor()
         cur.execute(
             """
-            SELECT eb.IDEndereco,
-                   CONCAT(eb.Logradouro, ', ', eb.Numero,
-                          IF(eb.Complemento IS NOT NULL, CONCAT(' ', eb.Complemento), ''),
-                          ' - ', eb.Cidade, '/', eb.Estado) AS Descricao
+            SELECT
+                eb.IDEndereco,
+                CONCAT(
+                    eb.Logradouro,
+                    IFNULL(CONCAT(', ', eb.Numero), ''),
+                    IFNULL(CONCAT(' ', eb.Complemento), ''),
+                    ' - ', ci.Nome, '/', ci.Estado
+                ) AS Descricao
             FROM EnderecoBase eb
             JOIN EntidadeEndereco ee ON ee.IDEndereco = eb.IDEndereco
-            WHERE ee.IDEntidade = ? AND eb.Ativo = TRUE
-            ORDER BY eb.Principal DESC, eb.Logradouro
+            JOIN Bairro ba           ON ba.IDBairro   = eb.IDBairro
+            JOIN Cidade ci           ON ci.IDCidade   = ba.IDCidade
+            WHERE ee.IDEntidade = ?
+            ORDER BY ee.Principal DESC, eb.Logradouro
             """,
             (id_cliente,),
         )
