@@ -1,4 +1,43 @@
-venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.so
+*.egg-info/
+
+# Ambiente virtual
+venv/
+env/
+.env
+
+# PyInstaller — use Releases para distribuir o .exe
+build/
+dist/
+*.spec
+
+# Editor
 .vscode/
+.idea/
+
+# Banco de dados / credenciais — NUNCA suba isso
+*.sql.bak
+config_local.py
+.env.local
+
+# Arquivos gerados
+relatorio.html
+ferroflux_erro.log
+
+# Sistema operacional
+Thumbs.db
+.DS_Store
+desktop.ini
+
+ui_cogwheel_cog_setting_configuration_preferences_options_settings_gear_icon_210762.ico
+
+*.spec
+
+telas/*.spec
+
+conftest.py
+
+test_ferroflux_completo.py

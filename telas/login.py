@@ -123,7 +123,9 @@ class TelaLogin(JanelaPadrao):
     def _reconfigurar(self) -> None:
         """Destrói esta janela e abre a tela de configuração de conexão."""
         self.destroy()
-        from telas.tela_conexao import TelaConexao  # pylint: disable=import-outside-toplevel
+        from telas.tela_conexao import (
+            TelaConexao,
+        )  # pylint: disable=import-outside-toplevel
 
         TelaConexao().mainloop()
 
@@ -143,8 +145,15 @@ class TelaLogin(JanelaPadrao):
             menu.pack(fill="both", expand=True)
 
             janela.mainloop()
-        except (ImportError, AttributeError):
-            pass
+        except Exception:
+            erro = traceback.format_exc()
+            # Salva no log
+            with open("ferroflux_erro.log", "a", encoding="utf-8") as f:
+                f.write(erro)
+            # Mostra na tela também
+            import tkinter.messagebox as mb
+
+            mb.showerror("Erro ao iniciar", erro)
 
 
 # ---------------------------------------------------------------------------

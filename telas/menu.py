@@ -312,3 +312,4 @@ if __name__ == "__main__":
     menu = TelaMenu(app, usuario=usuario_teste)
     menu.pack(fill="both", expand=True)
     app.mainloop()
+
